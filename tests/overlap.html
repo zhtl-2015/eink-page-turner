@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>页眉页脚重叠测试</title>
+  <style>
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      padding: 100px 18px 120px;
+      font: 18px/1.9 Georgia, "Noto Serif CJK SC", serif;
+      color: #111;
+      background: #fff;
+    }
+    .fixed-header {
+      position: fixed;
+      z-index: 10;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 72px;
+      background: #222;
+      color: #fff;
+      padding: 12px 16px;
+      box-sizing: border-box;
+    }
+    .fixed-footer {
+      position: fixed;
+      z-index: 10;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 54px;
+      background: #444;
+      color: #fff;
+      padding: 15px 16px;
+      box-sizing: border-box;
+    }
+    .spacer { height: 1400px; }
+    .marker { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="fixed-header">固定页眉 · 72px</div>
+  <div class="fixed-footer">固定页脚 · 54px</div>
+  <h1>页眉页脚重叠测试</h1>
+  <p>翻页时的滚动距离应自动避开固定页眉和页脚，并额外留下重叠区域。</p>
+  <p class="marker">OVERLAY-TOP</p>
+  <div class="spacer"></div>
+  <p class="marker">OVERLAY-MIDDLE</p>
+  <div class="spacer"></div>
+  <p class="marker">OVERLAY-LOWER</p>
+  <div class="spacer"></div>
+  <p class="marker">OVERLAY-BOTTOM</p>
+</body>
+</html>

@@ -1,0 +1,21 @@
+/*
+ * 只在翻页模式开启时生效。
+ * 使用约 1ms 的时长而不是直接删除 transition/animation，
+ * 这样依赖 transitionend/animationend 的网站逻辑仍然能收到事件。
+ * 视觉上已经等同于“无过渡”。
+ */
+html[data-eink-page-turner-active] *,
+html[data-eink-page-turner-active] *::before,
+html[data-eink-page-turner-active] *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0.001s !important;
+  transition-delay: 0s !important;
+  animation-duration: 0.001s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+}
+
+html[data-eink-page-turner-active],
+html[data-eink-page-turner-active] body {
+  scroll-behavior: auto !important;
+}

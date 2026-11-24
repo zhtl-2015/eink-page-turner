@@ -1,0 +1,2 @@
+7c832fb112deaa442d5a665a783feb24edf6c093e90abbbb59259d4ee7a66e20  eink-page-turner-0.2.0.xpi
+7c832fb112deaa442d5a665a783feb24edf6c093e90abbbb59259d4ee7a66e20  eink-page-turner-0.2.0.zip

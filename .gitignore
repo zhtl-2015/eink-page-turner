@@ -1,0 +1,6 @@
+.venv/
+tools/bin/
+tests/artifacts/
+__pycache__/
+*.pyc
+.DS_Store
