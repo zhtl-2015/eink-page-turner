@@ -2,6 +2,8 @@
 
 把上下滚动的网页改成“一屏一页”的电子墨水屏阅读模式。
 
+> 非官方项目，与 Mozilla 无隶属关系。Firefox 是 Mozilla Foundation 的商标。
+
 ![翻页模式界面](docs/screenshot-enabled.png)
 
 - 收起时只在画面右下角保留一个「展开」按钮；展开后是横排控制条：「收起 / A− / A+ / ↑ / ↓」。
@@ -23,62 +25,51 @@
 
 ## 安装
 
-本仓库里的 `.xpi` 是**未签名**的本地开发包。Firefox 正式版默认只能安装 Mozilla 签名的扩展，因此直接点开文件通常会失败；这属于 Firefox 的签名限制，不是扩展本身报错。
+本仓库生成的 `.xpi` **没有 Mozilla 签名**。普通 Firefox for Android 正式版 / Beta 默认会拒绝安装，因此它目前只适合开发测试。最简单的测试方式是使用 Firefox Nightly。
 
-### 方案 A：adb 临时安装（本次试用推荐）
+### 推荐：Firefox Nightly 从本地文件安装
 
-不需要签名，适合先验证功能。电脑需要 Node.js 20+、Android Platform Tools（adb）。
+> 仅用于测试未签名扩展。关闭签名校验会降低浏览器安全性，请只安装自己信任的 `.xpi`。
 
-1. 手机打开「开发者选项」和「USB 调试」，用 USB 连接电脑，手机上允许调试。
-2. 在手机 Firefox 中打开：设置 → 高级 → **通过 USB 远程调试**（不同版本可能叫“Remote debugging via USB”）。
-3. 确认设备已授权：
+1. 从 Google Play 或 [Mozilla 官网](https://www.mozilla.org/firefox/nightly/) 安装 **Firefox Nightly**。
+2. 把 [`dist/eink-page-turner-0.3.0.xpi`](dist/eink-page-turner-0.3.0.xpi)（或 GitHub Releases 中的 `.xpi`）下载或传到手机。
+3. 在 Nightly 地址栏打开 `about:config`。
+   - 如果打不开，先执行第 4 步解锁隐藏设置，再回来重试。部分版本可能要在隐藏的 Secret settings / Debug menu 中启用 `about:config`。
+4. 打开：设置 → 关于 Firefox，**连续点击 Firefox 图标 5 次**，解锁隐藏调试选项。
+5. 回到 `about:config`，搜索 `xpinstall.signatures.required`，把值改为 `false`。
+   - 如果修改后不生效，完全退出 Nightly 再重新打开。
+6. 确认已通过“关于 Firefox”连续点击解锁隐藏菜单，然后进入：
+   设置 → **从文件安装扩展**（英文界面为 **Install Extension from File**；不同版本可能位于隐藏的调试菜单中）。
+7. 选择刚才保存的 `.xpi`，确认添加。
+8. 打开任意网页，右下角出现「展开」即安装成功。
 
-   ```bash
-   adb devices
-   # 应看到形如 XXXXXXXX    device
-   ```
+不同 Nightly 版本的隐藏菜单名称和位置可能略有差异。如果找不到入口，请重启 Nightly，并再次确认图标已连续点击 5 次。
 
-4. 在电脑的项目目录运行：
+> 这是测试流程，不是正式分发方式。普通用户请等待 AMO 上的签名版本；不建议在正式版中关闭签名校验。
+
+### 备选：adb 临时安装（一般不需要）
+
+如果 Nightly 的本地安装入口不可用，可以通过 adb 临时安装。需要电脑安装 Node.js 20+、Android Platform Tools，并在手机开发者选项中开启 USB 调试。
+
+1. 在手机 Firefox / Nightly 中开启「通过 USB 远程调试」（Remote debugging via USB）。
+2. 连接手机并确认 `adb devices` 能看到设备。
+3. 在项目目录运行：
 
    ```bash
    ./tools/run-in-firefox-android.sh
    ```
 
-   脚本会检查设备，并通过 `web-ext` 把 `extension/` 作为临时扩展安装到手机 Firefox。
-
-5. 如果电脑上装了多个 Android 设备/模拟器，把设备 ID 作为参数：
+   使用 Nightly 时：
 
    ```bash
-   ./tools/run-in-firefox-android.sh XXXXXXXX
+   FIREFOX_APK=org.mozilla.fenix.nightly ./tools/run-in-firefox-android.sh
    ```
 
-6. 安装成功后，在手机上打开要阅读的网页，右下角应出现「展开」。调试会话用 `Ctrl+C` 结束；临时扩展会保留到 Firefox 重启。
+这种方式把扩展作为临时扩展加载，**重启 Firefox 后会消失**。完整参数见脚本内注释。
 
-Firefox 变体的 APK 名不同，可用环境变量指定：
+### 长期使用
 
-```bash
-# Firefox Nightly
-FIREFOX_APK=org.mozilla.fenix.nightly ./tools/run-in-firefox-android.sh
-
-# Firefox Beta
-FIREFOX_APK=org.mozilla.firefox_beta ./tools/run-in-firefox-android.sh
-```
-
-### 方案 B：签名后从文件安装（可长期使用）
-
-1. 免费注册 Mozilla Add-ons 开发者账号。
-2. 在 <https://addons.mozilla.org/developers/> 选择「Submit a New Add-on」。
-3. 选择 **On your own**（自行分发 / unlisted），上传 `dist/eink-page-turner-0.3.0.zip`。
-4. 等待自动签名完成，下载签名后的 `.xpi`。
-5. 把签名后的 `.xpi` 传到手机。
-6. 手机 Firefox 中打开：设置 → 关于 Firefox → 连续点 5 次 Firefox 图标，解锁隐藏菜单。
-7. 返回设置 → **Install Extension from File**（从文件安装扩展）→ 选择 `.xpi` → 添加。
-
-> 这是 Android 版 Firefox 官方提供的从文件安装路径，但只接受已签名扩展。
-
-### 方案 C：直接尝试本地包
-
-如果手机上是 Firefox Nightly，并且已关闭扩展签名校验，可以直接把 `dist/eink-page-turner-0.3.0.xpi` 传到手机，按方案 B 第 6–7 步操作。正式版、Beta 版通常不接受未签名包。
+当前 GitHub 构建包未签名，不适合正式版直接安装。后续如果发布到 AMO，签名版本可以直接从 AMO 安装并自动更新。
 
 ## 使用
 
@@ -125,10 +116,12 @@ dist/                      构建产物
   eink-page-turner-0.3.0.xpi
   eink-page-turner-0.3.0.zip
   SHA256SUMS.txt
+docs/                      README 使用的界面截图
 tools/
   run-in-firefox-android.sh
 tests/                     桌面 Firefox 自动化测试与测试页
 build.sh                   重新打包
+LICENSE                    MIT 许可证
 ```
 
 ## 开发与验证
@@ -141,14 +134,29 @@ npx --yes web-ext@10.8.0 lint --source-dir extension --output text
 桌面 Firefox 自动化测试（需要本机 Firefox、Python 3、Selenium 和 geckodriver）：
 
 ```bash
+# 先构建出测试使用的 XPI
+./build.sh
+
+# 再启动测试页服务器
 python3 -m http.server 8765 --bind 127.0.0.1
+
+# 另开终端安装测试依赖并运行
 python3 -m venv .venv
 .venv/bin/pip install selenium
-.venv/bin/python tests/test_extension.py
+GECKODRIVER=/path/to/geckodriver .venv/bin/python tests/test_extension.py
 ```
 
-测试覆盖：展开/收起状态、横排与最右下一页、默认右下角、整条拖动、正文字号增减与行高变化、字号收起/展开恢复、位置/字号/状态持久化、重叠步长、固定页眉页脚检测、页尾提示、内部滚动容器、CSP 页面样式隔离。截图位于 `tests/artifacts/`。
+未设置 `GECKODRIVER` 时，测试会尝试使用 `tools/bin/geckodriver`。
+
+测试覆盖：展开/收起状态、横排与最右下一页、默认右下角、整条拖动、正文字号增减与行高变化、字号收起/展开恢复、位置/字号/状态持久化、重叠步长、固定页眉页脚检测、页尾提示、内部滚动容器、CSP 页面样式隔离。测试截图写入 `tests/artifacts/`，README 展示图位于 `docs/`。
+
+> 维护者提示：`manifest.json` 中的扩展 ID 只是一个稳定标识，不需要域名服务器可访问。首次提交 AMO 签名前应改成自己的域名或 GUID，签名后再修改会导致用户无法平滑升级。发布到 GitHub 时，记得给 Release 附上 XPI、ZIP 和校验文件，并注明 XPI 未签名。
 
 ## 隐私
 
-扩展不收集、不发送任何数据，只使用 `storage` 保存展开状态、按钮坐标和字号比例。清单中已声明 `data_collection_permissions.required = ["none"]`。
+扩展需要访问所有 `http/https` 网页，以便注入控制条、修改滚动和字号。它**不会收集或上传**页面内容、浏览记录或使用数据，也不会发起网络请求；只使用浏览器本地的 `storage` 保存展开状态、按钮坐标和字号比例。清单中已声明 `data_collection_permissions.required = ["none"]`。
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE)。
+Copyright (c) 2026 EBookPlugin contributors。
