@@ -1,11 +1,11 @@
 {
   "manifest_version": 2,
   "name": "墨水屏翻页器",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "把网页滚动改成整页翻页，关闭过渡动画，减少电子墨水屏刷新残影。",
   "browser_specific_settings": {
     "gecko": {
-      "id": "eink-page-turner@example.com",
+      "id": "eink-page-turner@zhtl-2015.github.io",
       "strict_min_version": "142.0",
       "data_collection_permissions": {
         "required": [

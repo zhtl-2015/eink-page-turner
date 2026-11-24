@@ -19,7 +19,9 @@
 - 自动识别两类页面：普通窗口滚动，以及固定布局里的内部滚动容器。
 - 使用 Shadow DOM 隔离样式；即使网站有严格 CSP，控件样式和翻页功能也能工作。
 
-当前版本：`0.3.0`，目标 Firefox for Android 142 及以上。
+当前版本：`0.3.1`，目标 Firefox for Android 142 及以上。
+
+> v0.3.1 仅更新扩展 ID（`eink-page-turner@zhtl-2015.github.io`）和发布文档，不改变功能。
 
 > v0.3.0 改了控制条布局，按钮位置使用新的存储键，会回到“右下角”默认位置一次；之后再拖动会正常保留。
 
@@ -32,7 +34,7 @@
 > 仅用于测试未签名扩展。关闭签名校验会降低浏览器安全性，请只安装自己信任的 `.xpi`。
 
 1. 从 Google Play 或 [Mozilla 官网](https://www.mozilla.org/firefox/nightly/) 安装 **Firefox Nightly**。
-2. 把 [`dist/eink-page-turner-0.3.0.xpi`](dist/eink-page-turner-0.3.0.xpi)（或 GitHub Releases 中的 `.xpi`）下载或传到手机。
+2. 把 [`dist/eink-page-turner-0.3.1.xpi`](dist/eink-page-turner-0.3.1.xpi)（或 GitHub Releases 中的 `.xpi`）下载或传到手机。
 3. 在 Nightly 地址栏打开 `about:config`。
    - 如果打不开，先执行第 4 步解锁隐藏设置，再回来重试。部分版本可能要在隐藏的 Secret settings / Debug menu 中启用 `about:config`。
 4. 打开：设置 → 关于 Firefox，**连续点击 Firefox 图标 5 次**，解锁隐藏调试选项。
@@ -113,8 +115,8 @@ extension/                 扩展源码
   content.css
   icons/
 dist/                      构建产物
-  eink-page-turner-0.3.0.xpi
-  eink-page-turner-0.3.0.zip
+  eink-page-turner-0.3.1.xpi
+  eink-page-turner-0.3.1.zip
   SHA256SUMS.txt
 docs/                      README 使用的界面截图
 tools/
@@ -159,4 +161,4 @@ GECKODRIVER=/path/to/geckodriver .venv/bin/python tests/test_extension.py
 ## 许可证
 
 本项目使用 [MIT License](LICENSE)。
-Copyright (c) 2026 EBookPlugin contributors。
+Copyright (c) 2026 zhtl-2015。

@@ -15,7 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 ROOT = Path(__file__).resolve().parent.parent
 XPIS = sorted((ROOT / "dist").glob("eink-page-turner-*.xpi"))
-XPI = XPIS[-1] if XPIS else ROOT / "dist" / "eink-page-turner-0.3.0.xpi"
+XPI = XPIS[-1] if XPIS else ROOT / "dist" / "eink-page-turner-0.3.1.xpi"
 BASE = "http://127.0.0.1:8765/tests"
 OUT = ROOT / "tests" / "artifacts"
 OUT.mkdir(exist_ok=True)
