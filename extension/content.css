@@ -19,3 +19,13 @@ html[data-eink-page-turner-active],
 html[data-eink-page-turner-active] body {
   scroll-behavior: auto !important;
 }
+
+/*
+ * 调整正文字号时短暂停用 transition，避免读取到过渡过程中的中间字号。
+ */
+html[data-eink-page-turner-measuring] *,
+html[data-eink-page-turner-measuring] *::before,
+html[data-eink-page-turner-measuring] *::after {
+  transition: none !important;
+  animation: none !important;
+}

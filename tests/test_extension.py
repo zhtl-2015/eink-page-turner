@@ -15,7 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 ROOT = Path(__file__).resolve().parent.parent
 XPIS = sorted((ROOT / "dist").glob("eink-page-turner-*.xpi"))
-XPI = XPIS[-1] if XPIS else ROOT / "dist" / "eink-page-turner-0.2.0.xpi"
+XPI = XPIS[-1] if XPIS else ROOT / "dist" / "eink-page-turner-0.3.0.xpi"
 BASE = "http://127.0.0.1:8765/tests"
 OUT = ROOT / "tests" / "artifacts"
 OUT.mkdir(exist_ok=True)
@@ -32,13 +32,13 @@ def check(condition: bool, label: str, detail: object = "") -> None:
         failures.append(label)
 
 
-def shadow_button(driver, bid: str):
+def shadow_element(driver, element_id: str):
     return driver.execute_script(
         """
         const host = document.querySelector('eink-page-turner');
         return host && host.shadowRoot ? host.shadowRoot.getElementById(arguments[0]) : null;
         """,
-        bid,
+        element_id,
     )
 
 
@@ -46,20 +46,28 @@ def state(driver):
     return driver.execute_script(
         """
         const host = document.querySelector('eink-page-turner');
-        const prev = host && host.shadowRoot && host.shadowRoot.getElementById('prev');
-        const next = host && host.shadowRoot && host.shadowRoot.getElementById('next');
-        const toggle = host && host.shadowRoot && host.shadowRoot.getElementById('toggle');
+        const sr = host && host.shadowRoot;
+        const byId = (id) => (sr ? sr.getElementById(id) : null);
         const rect = host ? host.getBoundingClientRect() : null;
+        const info = (el) => (el ? {
+          hidden: el.hidden,
+          text: el.textContent.trim(),
+          rect: (() => {
+            const r = el.getBoundingClientRect();
+            return {x: r.x, y: r.y, width: r.width, height: r.height};
+          })()
+        } : null);
         return {
           host: !!host,
           rect: rect ? {x: rect.x, y: rect.y, width: rect.width, height: rect.height} : null,
           mode: host && host.getAttribute('data-mode'),
           active: document.documentElement.getAttribute('data-eink-page-turner-active'),
-          prevHidden: prev ? prev.hidden : null,
-          nextHidden: next ? next.hidden : null,
-          toggleText: toggle ? toggle.textContent : null,
-          prevText: prev ? prev.textContent : null,
-          nextText: next ? next.textContent : null,
+          toggle: info(byId('toggle')),
+          fontDown: info(byId('font-down')),
+          fontUp: info(byId('font-up')),
+          prev: info(byId('prev')),
+          next: info(byId('next')),
+          hasDragHandle: !!(sr && sr.querySelector('.drag-handle')),
           step: host && host.getAttribute('data-page-step'),
           overlap: host && host.getAttribute('data-page-overlap'),
           uiScale: host && host.getAttribute('data-ui-scale'),
@@ -67,6 +75,8 @@ def state(driver):
           y: window.scrollY,
           innerWidth: window.innerWidth,
           innerHeight: window.innerHeight,
+          vw: window.visualViewport ? window.visualViewport.width : document.documentElement.clientWidth,
+          vh: window.visualViewport ? window.visualViewport.height : document.documentElement.clientHeight,
           docClientHeight: document.documentElement.clientHeight,
           max: Math.max(0, document.documentElement.scrollHeight - document.documentElement.clientHeight)
         };
@@ -74,36 +84,21 @@ def state(driver):
     )
 
 
-def ui_geometry(driver):
+def paragraph_style(driver):
     return driver.execute_script(
         """
-        const host = document.querySelector('eink-page-turner');
-        const sr = host.shadowRoot;
-        const info = (el) => {
-          const rect = el.getBoundingClientRect();
-          const style = getComputedStyle(el);
-          return {
-            width: rect.width,
-            height: rect.height,
-            fontSize: style.fontSize,
-            text: el.textContent.trim()
-          };
-        };
-        return {
-          host: info(host),
-          prev: info(sr.getElementById('prev')),
-          next: info(sr.getElementById('next')),
-          toggle: info(sr.getElementById('toggle'))
-        };
+        const p = document.querySelector('p');
+        const s = getComputedStyle(p);
+        return {fontSize: parseFloat(s.fontSize), lineHeight: parseFloat(s.lineHeight)};
         """
     )
 
 
-def click_shadow(driver, bid: str) -> None:
-    button = shadow_button(driver, bid)
-    if button is None:
-        raise AssertionError(f"没找到按钮 {bid}")
-    button.click()
+def click_shadow(driver, element_id: str) -> None:
+    element = shadow_element(driver, element_id)
+    if element is None:
+        raise AssertionError(f"没找到按钮 {element_id}")
+    element.click()
 
 
 def wait_mode(driver, expected: str) -> None:
@@ -124,6 +119,14 @@ def ensure_mode(driver, expected: str) -> None:
     if state(driver)["mode"] != expected:
         click_shadow(driver, "toggle")
     wait_mode(driver, expected)
+
+
+def wait_paragraph_font(driver, expected: float, tolerance: float = 0.3) -> float:
+    def actual(d):
+        return paragraph_style(d)["fontSize"]
+
+    WebDriverWait(driver, 5).until(lambda d: abs(actual(d) - expected) <= tolerance)
+    return actual(driver)
 
 
 driver = None
@@ -149,10 +152,28 @@ try:
     wait_injected(driver)
     initial = state(driver)
     check(initial["host"], "扩展注入页面", initial)
-    check(initial["mode"] == "off", "默认关闭翻页模式", initial)
-    check(initial["prevHidden"] is True and initial["nextHidden"] is True, "关闭时不显示翻页按钮")
-    check(abs(initial["rect"]["width"] - 44) <= 1, "控件宽度固定为 44px", initial["rect"])
-    check(abs(initial["rect"]["height"] - 51) <= 1, "关闭时控件为紧凑高度", initial["rect"])
+    check(initial["mode"] == "off", "默认收起", initial)
+    check(initial["toggle"]["text"] == "展开", "收起时显示“展开”", initial["toggle"])
+    check(
+        initial["fontDown"]["hidden"]
+        and initial["fontUp"]["hidden"]
+        and initial["prev"]["hidden"]
+        and initial["next"]["hidden"],
+        "收起时隐藏翻页和字体按钮",
+    )
+    check(not initial["hasDragHandle"], "不再显示拖动符号")
+    check(
+        abs(initial["rect"]["width"] - 52) <= 1
+        and abs(initial["rect"]["height"] - 40) <= 1,
+        "收起后只保留一个紧凑按钮",
+        initial["rect"],
+    )
+    check(
+        abs((initial["rect"]["x"] + initial["rect"]["width"]) - (initial["vw"] - 16)) <= 2
+        and abs((initial["rect"]["y"] + initial["rect"]["height"]) - (initial["vh"] - 12)) <= 2,
+        "默认位于画面右下角",
+        initial["rect"],
+    )
 
     before_css = driver.execute_script(
         """
@@ -166,55 +187,54 @@ try:
         };
         """
     )
-    check(before_css["transition"].startswith("2s"), "关闭时页面过渡保持原样", before_css)
-    check(before_css["scrollBehavior"] == "smooth", "关闭时 smooth 滚动保持原样", before_css)
+    check(before_css["transition"].startswith("2s"), "收起时页面过渡保持原样", before_css)
+    check(before_css["scrollBehavior"] == "smooth", "收起时 smooth 滚动保持原样", before_css)
 
-    # 先验证拖动：拖动开关按钮本身不应误触开关，也不应改变模式。
-    before_drag = state(driver)
-    toggle = shadow_button(driver, "toggle")
-    ActionChains(driver).click_and_hold(toggle).move_by_offset(-90, 45).release().perform()
+    # 收起状态下直接拖动“展开”按钮，不应误展开。
+    toggle = shadow_element(driver, "toggle")
+    ActionChains(driver).click_and_hold(toggle).move_by_offset(-90, -45).release().perform()
     time.sleep(0.1)
     after_drag = state(driver)
-    check(after_drag["mode"] == "off", "拖动按钮不会误触开关", after_drag["mode"])
+    check(after_drag["mode"] == "off", "拖动收起按钮不会误展开", after_drag["mode"])
     check(
-        abs(after_drag["rect"]["x"] - (before_drag["rect"]["x"] - 90)) <= 3
-        and abs(after_drag["rect"]["y"] - (before_drag["rect"]["y"] + 45)) <= 3,
-        "按钮可以拖动到新位置",
-        {"before": before_drag["rect"], "after": after_drag["rect"]},
-    )
-    check(
-        after_drag["rect"]["x"] >= 0
-        and after_drag["rect"]["y"] >= 0
-        and after_drag["rect"]["x"] + after_drag["rect"]["width"] <= after_drag["innerWidth"]
-        and after_drag["rect"]["y"] + after_drag["rect"]["height"] <= after_drag["innerHeight"],
-        "拖动后控件仍在屏幕内",
-        after_drag["rect"],
+        abs(after_drag["rect"]["x"] - (initial["rect"]["x"] - 90)) <= 3
+        and abs(after_drag["rect"]["y"] - (initial["rect"]["y"] - 45)) <= 3,
+        "收起后仍然可以拖动",
+        {"before": initial["rect"], "after": after_drag["rect"]},
     )
     time.sleep(0.6)
 
     click_shadow(driver, "toggle")
     wait_mode(driver, "on")
     enabled = state(driver)
-    check(enabled["active"] == "true", "开启时写入动画抑制标记", enabled)
-    check(enabled["prevHidden"] is False and enabled["nextHidden"] is False, "开启时显示上下页按钮")
-    check(enabled["toggleText"] == "开", "开启时开关显示“开”", enabled["toggleText"])
-    check(enabled["prevText"] == "↑" and enabled["nextText"] == "↓", "上下页按钮只显示箭头")
-
-    geometry = ui_geometry(driver)
-    check(abs(geometry["host"]["width"] - 44) <= 1, "开启后控件宽度仍为 44px", geometry["host"])
+    check(enabled["active"] == "true", "展开时写入动画抑制标记", enabled)
+    check(enabled["toggle"]["text"] == "收起", "展开后按钮显示“收起”", enabled["toggle"])
     check(
-        abs(geometry["prev"]["height"] - 40) <= 1
-        and abs(geometry["next"]["height"] - 40) <= 1
-        and abs(geometry["toggle"]["height"] - 34) <= 1,
-        "按钮尺寸紧凑",
-        geometry,
+        not enabled["fontDown"]["hidden"]
+        and not enabled["fontUp"]["hidden"]
+        and not enabled["prev"]["hidden"]
+        and not enabled["next"]["hidden"],
+        "展开后显示全部按钮",
     )
     check(
-        geometry["prev"]["fontSize"] == "21px"
-        and geometry["next"]["fontSize"] == "21px"
-        and geometry["toggle"]["fontSize"] == "14px",
-        "箭头与开关字号固定",
-        geometry,
+        abs(enabled["rect"]["width"] - 236) <= 2
+        and abs(enabled["rect"]["height"] - 40) <= 1,
+        "展开后为横排布局",
+        enabled["rect"],
+    )
+
+    visible_buttons = [enabled[key] for key in ("toggle", "fontDown", "fontUp", "prev", "next")]
+    tops = [button["rect"]["y"] for button in visible_buttons]
+    check(max(tops) - min(tops) <= 1, "所有按钮水平排列", tops)
+    check(
+        enabled["next"]["rect"]["x"] == max(button["rect"]["x"] for button in visible_buttons),
+        "下一页按钮位于最右侧",
+        {key: enabled[key]["rect"]["x"] for key in ("toggle", "fontDown", "fontUp", "prev", "next")},
+    )
+    check(
+        abs(enabled["prev"]["rect"]["height"] - 40) <= 1
+        and abs(enabled["fontDown"]["rect"]["height"] - 40) <= 1,
+        "按钮尺寸仍为紧凑高度",
     )
 
     after_css = driver.execute_script(
@@ -225,37 +245,86 @@ try:
           transition: getComputedStyle(card).transitionDuration,
           animation: getComputedStyle(pulse).animationDuration,
           iterations: getComputedStyle(pulse).animationIterationCount,
-          scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
-          hostDisplay: getComputedStyle(document.querySelector('eink-page-turner')).display
+          scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior
         };
         """
     )
-    check(after_css["transition"] == "0.001s", "开启后过渡时长降至 1ms", after_css)
-    check(after_css["animation"] == "0.001s", "开启后动画时长降至 1ms", after_css)
-    check(after_css["iterations"] == "1", "开启后动画只播放一次", after_css)
-    check(after_css["scrollBehavior"] == "auto", "开启后 scroll-behavior 变为 auto", after_css)
-    check(after_css["hostDisplay"] == "block", "悬浮控件显示", after_css)
-    driver.save_screenshot(str(OUT / "mobile-enabled-top.png"))
+    check(after_css["transition"] == "0.001s", "展开后过渡时长降至 1ms", after_css)
+    check(after_css["animation"] == "0.001s", "展开后动画时长降至 1ms", after_css)
+    check(after_css["iterations"] == "1", "展开后动画只播放一次", after_css)
+    check(after_css["scrollBehavior"] == "auto", "展开后 scroll-behavior 变为 auto", after_css)
 
-    # 页面文字变大时，控件物理尺寸不应跟着改变。
-    driver.execute_script(
-        """
-        const style = document.createElement('style');
-        style.id = 'test-page-font-size';
-        style.textContent = 'html, body { font-size: 40px !important; }';
-        document.documentElement.appendChild(style);
-        """
-    )
-    time.sleep(0.1)
-    geometry_after_font = ui_geometry(driver)
+    # 字体大小调节
+    base_paragraph = paragraph_style(driver)
+    base_page_height = driver.execute_script("return document.documentElement.scrollHeight")
+    host_before_font = state(driver)["rect"]
+
+    click_shadow(driver, "font-up")
+    first_font = wait_paragraph_font(driver, base_paragraph["fontSize"] * 1.1)
+    check(first_font > base_paragraph["fontSize"], "A+ 能增大正文字号", {"base": base_paragraph, "now": first_font})
     check(
-        abs(geometry_after_font["host"]["width"] - 44) <= 1
-        and abs(geometry_after_font["prev"]["height"] - 40) <= 1,
-        "页面字号变化不影响控件尺寸",
-        geometry_after_font,
+        driver.execute_script("return document.documentElement.scrollHeight") > base_page_height,
+        "字号增大后页面高度随之增加",
     )
-    driver.execute_script("document.getElementById('test-page-font-size')?.remove();")
 
+    click_shadow(driver, "font-up")
+    wait_paragraph_font(driver, base_paragraph["fontSize"] * 1.2)
+    scaled_style = paragraph_style(driver)
+    check(
+        abs(scaled_style["lineHeight"] - base_paragraph["lineHeight"] * 1.2) <= 0.6,
+        "行高随字号同步缩放",
+        {"base": base_paragraph, "now": scaled_style},
+    )
+    check(
+        abs(state(driver)["rect"]["width"] - host_before_font["width"]) <= 1
+        and abs(state(driver)["rect"]["height"] - host_before_font["height"]) <= 1,
+        "字体调节不改变控件尺寸",
+        {"before": host_before_font, "after": state(driver)["rect"]},
+    )
+    font_toast = driver.execute_script(
+        "return document.querySelector('eink-page-turner').shadowRoot.getElementById('toast').textContent"
+    )
+    check(font_toast == "字号 120%", "字号变化提示正确", font_toast)
+
+    host_with_font = state(driver)["rect"]
+    click_shadow(driver, "toggle")
+    wait_mode(driver, "off")
+    collapsed = state(driver)
+    check(not collapsed["active"], "收起后恢复网页动画", collapsed["active"])
+    check(
+        abs(paragraph_style(driver)["fontSize"] - base_paragraph["fontSize"]) <= 0.3,
+        "收起后恢复网页原字号",
+        {"base": base_paragraph, "now": paragraph_style(driver)},
+    )
+    check(
+        abs(collapsed["rect"]["width"] - 52) <= 1,
+        "收起后只保留展开按钮",
+        collapsed["rect"],
+    )
+    restored_css = driver.execute_script(
+        """
+        return {
+          transition: getComputedStyle(document.querySelector('.smooth-card')).transitionDuration,
+          scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior
+        };
+        """
+    )
+    check(restored_css["transition"].startswith("2s"), "收起后恢复页面过渡", restored_css)
+    check(restored_css["scrollBehavior"] == "smooth", "收起后恢复页面滚动行为", restored_css)
+    driver.save_screenshot(str(OUT / "mobile-collapsed.png"))
+
+    click_shadow(driver, "toggle")
+    wait_mode(driver, "on")
+    wait_paragraph_font(driver, base_paragraph["fontSize"] * 1.2)
+    check(
+        abs(state(driver)["rect"]["x"] - host_with_font["x"]) <= 2
+        and abs(state(driver)["rect"]["y"] - host_with_font["y"]) <= 2,
+        "展开后保持拖动位置",
+        {"before": host_with_font, "after": state(driver)["rect"]},
+    )
+    driver.save_screenshot(str(OUT / "mobile-expanded.png"))
+
+    # 翻页与重叠
     start_y = state(driver)["y"]
     click_shadow(driver, "next")
     after_next = state(driver)
@@ -276,10 +345,8 @@ try:
         "下一页按重叠步长滚动",
         {"start": start_y, "after": after_next["y"], "expected": expected_step},
     )
-    check(after_next["y"] > 0, "下一页确实滚动了")
-    driver.save_screenshot(str(OUT / "mobile-enabled.png"))
+    driver.save_screenshot(str(OUT / "mobile-page-turn.png"))
 
-    # 连续翻到页尾
     for _ in range(40):
         if driver.execute_script("return window.scrollY >= document.documentElement.scrollHeight - innerHeight - 1"):
             break
@@ -303,37 +370,31 @@ try:
         {"bottom": at_bottom["y"], "after": after_prev["y"], "step": prev_step},
     )
 
-    # 开启状态与拖动位置跨刷新保留
+    # 展开状态、位置、字号跨刷新保留
     expected_position = state(driver)["rect"]
     driver.refresh()
     wait_injected(driver)
     wait_mode(driver, "on")
+    wait_paragraph_font(driver, base_paragraph["fontSize"] * 1.2)
     refreshed = state(driver)
-    check(refreshed["active"] == "true", "刷新后翻页模式保持开启")
+    check(refreshed["active"] == "true", "刷新后保持展开状态")
     check(
         abs(refreshed["rect"]["x"] - expected_position["x"]) <= 2
         and abs(refreshed["rect"]["y"] - expected_position["y"]) <= 2,
         "刷新后按钮位置保持",
         {"before": expected_position, "after": refreshed["rect"]},
     )
+    check(refreshed["toggle"]["text"] == "收起", "刷新后按钮文案保持")
+    check(
+        abs(paragraph_style(driver)["fontSize"] - base_paragraph["fontSize"] * 1.2) <= 0.3,
+        "刷新后字号设置保持",
+    )
 
     click_shadow(driver, "toggle")
     wait_mode(driver, "off")
-    disabled = state(driver)
-    check(disabled["active"] is None, "关闭后移除动画抑制标记", disabled)
-    restored_css = driver.execute_script(
-        """
-        return {
-          transition: getComputedStyle(document.querySelector('.smooth-card')).transitionDuration,
-          scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior
-        };
-        """
-    )
-    check(restored_css["transition"].startswith("2s"), "关闭后恢复页面过渡", restored_css)
-    check(restored_css["scrollBehavior"] == "smooth", "关闭后恢复页面滚动行为", restored_css)
-    check(disabled["prevHidden"] is True, "关闭后隐藏翻页按钮", disabled)
-    check(disabled["toggleText"] == "关", "关闭时开关显示“关”", disabled["toggleText"])
-    driver.save_screenshot(str(OUT / "mobile-disabled.png"))
+    check(not state(driver)["active"], "关闭后移除动画抑制标记")
+    check(state(driver)["prev"]["hidden"], "收起后隐藏翻页按钮")
+    driver.save_screenshot(str(OUT / "mobile-collapsed-after-refresh.png"))
 
     # 2. 页面内滚动容器
     driver.get(f"{BASE}/inner-scroller.html")
@@ -363,15 +424,19 @@ try:
         """
         const host = document.querySelector('eink-page-turner');
         const toggle = host.shadowRoot.getElementById('toggle');
+        const next = host.shadowRoot.getElementById('next');
         return {
-          width: getComputedStyle(toggle).width,
+          toggleWidth: getComputedStyle(toggle).width,
           border: getComputedStyle(toggle).borderTopWidth,
+          nextWidth: getComputedStyle(next).width,
           display: getComputedStyle(host).display
         };
         """
     )
     check(
-        csp_style["width"] == "44px" and csp_style["border"] == "2px",
+        csp_style["toggleWidth"] == "52px"
+        and csp_style["nextWidth"] == "44px"
+        and csp_style["border"] == "2px",
         "CSP 页面中阴影样式仍生效",
         csp_style,
     )

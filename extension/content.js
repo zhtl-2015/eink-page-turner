@@ -4,7 +4,12 @@
   const HOST_TAG = 'eink-page-turner';
   const ACTIVE_ATTR = 'data-eink-page-turner-active';
   const STORAGE_KEY = 'enabled';
-  const POSITION_KEY = 'position';
+  const PLACEMENT_KEY = 'placement';
+  const FONT_SCALE_KEY = 'fontScale';
+  const FONT_SCALE_MIN = 0.8;
+  const FONT_SCALE_MAX = 1.8;
+  const FONT_SCALE_STEP = 0.1;
+  const FONT_MEASURING_ATTR = 'data-eink-page-turner-measuring';
   const ext = typeof browser !== 'undefined' ? browser : globalThis.chrome;
 
   if (document.querySelector(HOST_TAG)) {
@@ -16,9 +21,12 @@
   let userChangedPosition = false;
   let host = null;
   let shadowRoot = null;
+  let panelElement = null;
   let prevButton = null;
   let nextButton = null;
   let toggleButton = null;
+  let fontDownButton = null;
+  let fontUpButton = null;
   let toast = null;
   let toastTimer = 0;
   let layoutFrame = 0;
@@ -28,23 +36,24 @@
   let resolvedMetrics = null;
   let dragState = null;
   let suppressClickUntil = 0;
+  let fontScale = 1;
+  let adjustedTextStyles = null;
 
   const UI_CSS = `
     :host {
       all: initial;
       color-scheme: light;
       --s: var(--eink-s, 1);
-      --ui-width: calc(44px * var(--s));
       --ui-gap: calc(5px * var(--s));
+      --ui-height: calc(40px * var(--s));
       --ui-border: calc(2px * var(--s));
       --ui-radius: calc(7px * var(--s));
-      --ui-page-height: calc(40px * var(--s));
-      --ui-toggle-height: calc(34px * var(--s));
-      --ui-arrow-size: calc(21px * var(--s));
-      --ui-toggle-size: calc(14px * var(--s));
-      --ui-handle-height: calc(12px * var(--s));
-      --ui-handle-bar-width: calc(14px * var(--s));
-      --ui-handle-bar-height: calc(7px * var(--s));
+      --ui-toggle-width: calc(52px * var(--s));
+      --ui-font-width: calc(38px * var(--s));
+      --ui-page-width: calc(44px * var(--s));
+      --ui-arrow-size: calc(20px * var(--s));
+      --ui-toggle-size: calc(13px * var(--s));
+      --ui-font-size: calc(15px * var(--s));
       --ui-toast-size: calc(14px * var(--s));
       --ui-toast-offset: calc(8px * var(--s));
     }
@@ -55,56 +64,32 @@
 
     .panel {
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
+      align-items: stretch;
+      justify-content: flex-start;
       gap: var(--ui-gap);
-      width: var(--ui-width);
-      pointer-events: none;
+      width: max-content;
+      pointer-events: auto;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
       font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
         "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
       -webkit-font-smoothing: antialiased;
     }
 
-    .drag-handle {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: var(--ui-handle-height);
-      pointer-events: auto;
-      cursor: grab;
-      touch-action: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .drag-handle::before {
-      content: "";
-      width: var(--ui-handle-bar-width);
-      height: var(--ui-handle-bar-height);
-      background: repeating-linear-gradient(
-        to bottom,
-        #000 0 calc(2px * var(--s)),
-        transparent calc(2px * var(--s)) calc(5px * var(--s))
-      );
-      opacity: 0.68;
-    }
-
-    .toolbar {
-      display: flex;
-      flex-direction: column;
-      gap: var(--ui-gap);
-      width: 100%;
-      pointer-events: none;
-    }
-
     button {
+      flex: none;
       pointer-events: auto;
       appearance: none;
       -webkit-appearance: none;
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 100%;
-      min-height: var(--ui-page-height);
+      width: auto;
+      height: var(--ui-height);
+      min-height: var(--ui-height);
       margin: 0;
       padding: calc(2px * var(--s)) 0;
       border: var(--ui-border) solid #000;
@@ -112,9 +97,10 @@
       background: #fff;
       color: #000;
       font-family: inherit;
-      font-size: var(--ui-arrow-size);
-      font-weight: 800;
+      font-size: var(--ui-font-size);
+      font-weight: 700;
       line-height: 1;
+      letter-spacing: 0;
       text-align: center;
       text-shadow: none;
       box-shadow: none;
@@ -140,10 +126,19 @@
     }
 
     #toggle {
-      min-height: var(--ui-toggle-height);
+      width: var(--ui-toggle-width);
       font-size: var(--ui-toggle-size);
-      font-weight: 700;
-      letter-spacing: 0;
+    }
+
+    .font-btn {
+      width: var(--ui-font-width);
+      font-size: var(--ui-font-size);
+    }
+
+    .page-btn {
+      width: var(--ui-page-width);
+      font-size: var(--ui-arrow-size);
+      font-weight: 800;
     }
 
     :host([data-mode="on"]) #toggle {
@@ -151,7 +146,7 @@
       color: #fff;
     }
 
-    :host(.dragging) .drag-handle,
+    :host(.dragging) .panel,
     :host(.dragging) button {
       cursor: grabbing;
     }
@@ -162,11 +157,11 @@
 
     #toast {
       position: absolute;
-      top: 50%;
-      right: calc(100% + var(--ui-toast-offset));
-      left: auto;
-      transform: translateY(-50%);
-      max-width: calc(180px * var(--s));
+      left: 50%;
+      bottom: calc(100% + var(--ui-toast-offset));
+      top: auto;
+      transform: translateX(-50%);
+      max-width: calc(220px * var(--s));
       padding: calc(7px * var(--s)) calc(9px * var(--s));
       border: var(--ui-border) solid #000;
       border-radius: calc(6px * var(--s));
@@ -187,9 +182,9 @@
       animation: none !important;
     }
 
-    :host([data-toast-side="right"]) #toast {
-      right: auto;
-      left: calc(100% + var(--ui-toast-offset));
+    :host([data-toast-vertical="below"]) #toast {
+      top: calc(100% + var(--ui-toast-offset));
+      bottom: auto;
     }
 
     #toast.show {
@@ -260,19 +255,38 @@
       shadowRoot.appendChild(style);
     }
 
-    const panel = document.createElement('div');
-    panel.className = 'panel';
+    panelElement = document.createElement('div');
+    panelElement.className = 'panel';
 
-    const dragHandle = document.createElement('div');
-    dragHandle.className = 'drag-handle';
-    dragHandle.setAttribute('aria-hidden', 'true');
-    dragHandle.title = '拖动调整位置';
+    toggleButton = document.createElement('button');
+    toggleButton.id = 'toggle';
+    toggleButton.type = 'button';
+    toggleButton.textContent = '展开';
+    toggleButton.setAttribute('aria-expanded', 'false');
+    toggleButton.setAttribute('aria-label', '展开翻页控件');
+    toggleButton.title = '展开翻页控件';
 
-    const toolbar = document.createElement('div');
-    toolbar.className = 'toolbar';
+    fontDownButton = document.createElement('button');
+    fontDownButton.id = 'font-down';
+    fontDownButton.className = 'font-btn';
+    fontDownButton.type = 'button';
+    fontDownButton.hidden = true;
+    fontDownButton.textContent = 'A−';
+    fontDownButton.setAttribute('aria-label', '减小正文字号');
+    fontDownButton.title = '减小正文字号';
+
+    fontUpButton = document.createElement('button');
+    fontUpButton.id = 'font-up';
+    fontUpButton.className = 'font-btn';
+    fontUpButton.type = 'button';
+    fontUpButton.hidden = true;
+    fontUpButton.textContent = 'A+';
+    fontUpButton.setAttribute('aria-label', '增大正文字号');
+    fontUpButton.title = '增大正文字号';
 
     prevButton = document.createElement('button');
     prevButton.id = 'prev';
+    prevButton.className = 'page-btn';
     prevButton.type = 'button';
     prevButton.hidden = true;
     prevButton.setAttribute('aria-label', '上一页');
@@ -281,31 +295,35 @@
 
     nextButton = document.createElement('button');
     nextButton.id = 'next';
+    nextButton.className = 'page-btn';
     nextButton.type = 'button';
     nextButton.hidden = true;
     nextButton.setAttribute('aria-label', '下一页');
     nextButton.title = '下一页';
     nextButton.textContent = '↓';
 
-    toggleButton = document.createElement('button');
-    toggleButton.id = 'toggle';
-    toggleButton.type = 'button';
-    toggleButton.textContent = '关';
-    toggleButton.setAttribute('aria-pressed', 'false');
-    toggleButton.setAttribute('aria-label', '开启整页翻页模式');
-    toggleButton.title = '开启整页翻页模式';
-
     toast = document.createElement('div');
     toast.id = 'toast';
     toast.setAttribute('role', 'status');
     toast.setAttribute('aria-live', 'polite');
 
-    toolbar.append(prevButton, nextButton, toggleButton);
-    panel.append(dragHandle, toolbar);
-    shadowRoot.append(panel, toast);
+    panelElement.append(
+      toggleButton,
+      fontDownButton,
+      fontUpButton,
+      prevButton,
+      nextButton
+    );
+    shadowRoot.append(panelElement, toast);
     document.documentElement.appendChild(host);
 
-    for (const button of [prevButton, nextButton, toggleButton]) {
+    for (const button of [
+      toggleButton,
+      fontDownButton,
+      fontUpButton,
+      prevButton,
+      nextButton
+    ]) {
       for (const eventName of ['pointerdown', 'touchstart', 'mousedown']) {
         button.addEventListener(eventName, (event) => event.stopPropagation(), { passive: true });
       }
@@ -325,6 +343,16 @@
       stopButtonEvent(event);
       userChangedMode = true;
       setMode(!modeEnabled, true);
+    });
+
+    fontDownButton.addEventListener('click', (event) => {
+      stopButtonEvent(event);
+      changeFontScale(-1);
+    });
+
+    fontUpButton.addEventListener('click', (event) => {
+      stopButtonEvent(event);
+      changeFontScale(1);
     });
 
     shadowRoot.addEventListener('pointerdown', onPointerDown, true);
@@ -360,7 +388,8 @@
     return event.composedPath().some((node) => {
       return (
         node instanceof Element &&
-        (node.matches('.drag-handle') || node.matches('button'))
+        panelElement &&
+        (node === panelElement || panelElement.contains(node))
       );
     });
   }
@@ -584,8 +613,8 @@
     const physicalHeight = Math.max(1, baseHeight * info.pageScale);
     const viewportWidth = Math.max(1, info.viewportPhysicalWidth);
     const viewportHeight = Math.max(1, info.viewportPhysicalHeight);
-    const marginX = Math.min(8, viewportWidth * 0.02);
-    const marginY = Math.min(6, viewportHeight * 0.02);
+    const marginX = 6;
+    const marginY = 6;
 
     const key = [
       info.pageScale.toFixed(4),
@@ -596,6 +625,7 @@
       Math.round(physicalWidth * 10),
       Math.round(physicalHeight * 10),
       modeEnabled ? 1 : 0,
+      fontScale.toFixed(2),
       position ? position.x.toFixed(4) : 'default',
       position ? position.y.toFixed(4) : 'default'
     ].join('|');
@@ -610,17 +640,17 @@
       x = position.x;
       y = position.y;
     } else {
-      x = (viewportWidth - physicalWidth - 12) / viewportWidth;
-      y = (viewportHeight - physicalHeight) / 2 / viewportHeight;
+      x = (viewportWidth - 16 - physicalWidth / 2) / viewportWidth;
+      y = (viewportHeight - 12 - physicalHeight / 2) / viewportHeight;
     }
 
-    const maxX = Math.max(0, 1 - (physicalWidth + marginX) / viewportWidth);
-    const maxY = Math.max(0, 1 - (physicalHeight + marginY) / viewportHeight);
-    x = clamp(x, marginX / viewportWidth, maxX);
-    y = clamp(y, marginY / viewportHeight, maxY);
+    const halfWidthX = (physicalWidth / 2 + marginX) / viewportWidth;
+    const halfHeightY = (physicalHeight / 2 + marginY) / viewportHeight;
+    x = clamp(x, halfWidthX, 1 - halfWidthX);
+    y = clamp(y, halfHeightY, 1 - halfHeightY);
 
-    const left = info.offsetLeft + x * info.visualWidth;
-    const top = info.offsetTop + y * info.visualHeight;
+    const left = info.offsetLeft + x * info.visualWidth - baseWidth / 2;
+    const top = info.offsetTop + y * info.visualHeight - baseHeight / 2;
 
     host.style.setProperty(
       'transform',
@@ -632,9 +662,10 @@
     host.setAttribute('data-ui-scale', info.cssScale.toFixed(3));
     host.setAttribute('data-page-scale', info.pageScale.toFixed(3));
     host.setAttribute(
-      'data-toast-side',
-      x + physicalWidth / viewportWidth / 2 > 0.5 ? 'left' : 'right'
+      'data-toast-vertical',
+      y < 0.3 ? 'below' : 'above'
     );
+    host.setAttribute('data-font-scale', fontScale.toFixed(2));
 
     resolvedPosition = { x, y };
     resolvedMetrics = {
@@ -675,28 +706,28 @@
     } else {
       document.documentElement.removeAttribute(ACTIVE_ATTR);
       hideToast();
+      restorePageFontScaleInstant();
     }
 
     if (host) {
       host.setAttribute('data-mode', modeEnabled ? 'on' : 'off');
+      host.setAttribute('aria-expanded', String(modeEnabled));
     }
 
-    if (prevButton) {
-      prevButton.hidden = !modeEnabled;
-    }
-
-    if (nextButton) {
-      nextButton.hidden = !modeEnabled;
+    for (const button of [fontDownButton, fontUpButton, prevButton, nextButton]) {
+      if (button) {
+        button.hidden = !modeEnabled;
+      }
     }
 
     if (toggleButton) {
-      toggleButton.textContent = modeEnabled ? '开' : '关';
-      toggleButton.setAttribute('aria-pressed', String(modeEnabled));
+      toggleButton.textContent = modeEnabled ? '收起' : '展开';
+      toggleButton.setAttribute('aria-expanded', String(modeEnabled));
       toggleButton.setAttribute(
         'aria-label',
-        modeEnabled ? '关闭整页翻页模式' : '开启整页翻页模式'
+        modeEnabled ? '收起翻页控件' : '展开翻页控件'
       );
-      toggleButton.title = modeEnabled ? '关闭整页翻页模式' : '开启整页翻页模式';
+      toggleButton.title = modeEnabled ? '收起翻页控件' : '展开翻页控件';
     }
 
     if (persist) {
@@ -704,6 +735,10 @@
     }
 
     updateLayout(true);
+
+    if (modeEnabled) {
+      refreshPageFontScale();
+    }
   }
 
   function saveMode() {
@@ -731,7 +766,7 @@
         return;
       }
       const result = ext.storage.local.set({
-        [POSITION_KEY]: {
+        [PLACEMENT_KEY]: {
           x: Number(position.x.toFixed(5)),
           y: Number(position.y.toFixed(5))
         }
@@ -741,6 +776,22 @@
       }
     } catch (error) {
       // 忽略存储错误，当前页面仍可拖动。
+    }
+  }
+
+  function saveFontScale() {
+    try {
+      if (!ext || !ext.storage || !ext.storage.local) {
+        return;
+      }
+      const result = ext.storage.local.set({
+        [FONT_SCALE_KEY]: fontScale
+      });
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => {});
+      }
+    } catch (error) {
+      // 忽略存储错误，本页内字号仍可调整。
     }
   }
 
@@ -759,18 +810,30 @@
     }
 
     try {
-      const data = await ext.storage.local.get([STORAGE_KEY, POSITION_KEY]);
+      const data = await ext.storage.local.get([
+        STORAGE_KEY,
+        PLACEMENT_KEY,
+        FONT_SCALE_KEY
+      ]);
       if (!data || typeof data !== 'object') {
         return null;
       }
+      const storedFontScale = Number(data[FONT_SCALE_KEY]);
       return {
         enabled: Boolean(data[STORAGE_KEY]),
-        position: validPosition(data[POSITION_KEY])
+        position: validPosition(data[PLACEMENT_KEY])
           ? {
-              x: clamp(Number(data[POSITION_KEY].x), 0, 1),
-              y: clamp(Number(data[POSITION_KEY].y), 0, 1)
+              x: clamp(Number(data[PLACEMENT_KEY].x), 0, 1),
+              y: clamp(Number(data[PLACEMENT_KEY].y), 0, 1)
             }
-          : null
+          : null,
+        fontScale: Number.isFinite(storedFontScale)
+          ? clamp(
+              Math.round(storedFontScale * 10) / 10,
+              FONT_SCALE_MIN,
+              FONT_SCALE_MAX
+            )
+          : 1
       };
     } catch (error) {
       return null;
@@ -792,9 +855,9 @@
             setMode(next, false);
           }
         }
-        if (changes[POSITION_KEY] && !dragState) {
-          const next = validPosition(changes[POSITION_KEY].newValue)
-            ? changes[POSITION_KEY].newValue
+        if (changes[PLACEMENT_KEY] && !dragState) {
+          const next = validPosition(changes[PLACEMENT_KEY].newValue)
+            ? changes[PLACEMENT_KEY].newValue
             : null;
           if (next) {
             position = {
@@ -804,10 +867,229 @@
             updateLayout(true);
           }
         }
+        if (changes[FONT_SCALE_KEY]) {
+          const next = Number(changes[FONT_SCALE_KEY].newValue);
+          if (Number.isFinite(next)) {
+            const normalized = clamp(
+              Math.round(next * 10) / 10,
+              FONT_SCALE_MIN,
+              FONT_SCALE_MAX
+            );
+            if (normalized !== fontScale) {
+              fontScale = normalized;
+              if (modeEnabled) {
+                refreshPageFontScale();
+              }
+            }
+          }
+        }
       });
     } catch (error) {
       // 旧版本浏览器没有 storage.onChanged 时忽略同步即可。
     }
+  }
+
+  const TEXT_SKIP_SELECTOR = [
+    'script',
+    'style',
+    'noscript',
+    'template',
+    'textarea',
+    'input',
+    'select',
+    'option',
+    'button',
+    'svg',
+    'canvas',
+    'video',
+    'audio',
+    'iframe',
+    'object',
+    'embed',
+    'pre',
+    'code',
+    'nav',
+    '[role="navigation"]',
+    '[role="button"]',
+    '[aria-hidden="true"]',
+    '[contenteditable="true"]'
+  ].join(',');
+
+  function restorePageFontScale() {
+    if (!adjustedTextStyles) {
+      return;
+    }
+
+    for (const record of adjustedTextStyles) {
+      const { element } = record;
+      if (!element || !element.isConnected || !element.style) {
+        continue;
+      }
+
+      if (record.fontValue) {
+        element.style.setProperty('font-size', record.fontValue, record.fontPriority);
+      } else {
+        element.style.removeProperty('font-size');
+      }
+
+      if (record.lineAdjusted) {
+        if (record.lineValue) {
+          element.style.setProperty('line-height', record.lineValue, record.linePriority);
+        } else {
+          element.style.removeProperty('line-height');
+        }
+      }
+    }
+
+    adjustedTextStyles = null;
+  }
+
+  function restorePageFontScaleInstant() {
+    const alreadyMeasuring = document.documentElement.hasAttribute(FONT_MEASURING_ATTR);
+    if (!alreadyMeasuring) {
+      document.documentElement.setAttribute(FONT_MEASURING_ATTR, 'true');
+    }
+    try {
+      restorePageFontScale();
+      if (document.body) {
+        void document.body.offsetHeight;
+      }
+    } finally {
+      if (!alreadyMeasuring) {
+        document.documentElement.removeAttribute(FONT_MEASURING_ATTR);
+      }
+    }
+  }
+
+  function refreshPageFontScale() {
+    document.documentElement.setAttribute(FONT_MEASURING_ATTR, 'true');
+
+    try {
+      restorePageFontScale();
+
+      if (!modeEnabled || !document.body || Math.abs(fontScale - 1) < 0.001) {
+        return 0;
+      }
+
+      // 先恢复原样式并强制一次布局，避免用已经缩放过的字号作为基准。
+      void document.body.offsetHeight;
+
+      const elements = new Set();
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(node) {
+            if (!node.nodeValue || !/\S/.test(node.nodeValue)) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            const parent = node.parentElement;
+            if (!parent || parent.closest(TEXT_SKIP_SELECTOR)) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+
+      while (elements.size < 6000) {
+        const node = walker.nextNode();
+        if (!node) {
+          break;
+        }
+        const parent = node.parentElement;
+        if (parent) {
+          elements.add(parent);
+        }
+      }
+
+      const records = [];
+
+      for (const element of elements) {
+        if (!element.isConnected || !element.style) {
+          continue;
+        }
+
+        const computed = window.getComputedStyle(element);
+        if (
+          computed.display === 'none' ||
+          computed.visibility === 'hidden' ||
+          Number(computed.opacity || 1) <= 0.01
+        ) {
+          continue;
+        }
+
+        if (computed.position === 'fixed' || computed.position === 'sticky') {
+          continue;
+        }
+
+        const baseFontSize = Number.parseFloat(computed.fontSize);
+        if (!Number.isFinite(baseFontSize) || baseFontSize < 6) {
+          continue;
+        }
+
+        const baseLineHeight = Number.parseFloat(computed.lineHeight);
+        records.push({
+          element,
+          baseFontSize,
+          baseLineHeight,
+          fontValue: element.style.getPropertyValue('font-size'),
+          fontPriority: element.style.getPropertyPriority('font-size'),
+          lineValue: element.style.getPropertyValue('line-height'),
+          linePriority: element.style.getPropertyPriority('line-height'),
+          lineAdjusted: Number.isFinite(baseLineHeight) && baseLineHeight > 0
+        });
+      }
+
+      // 所有基准尺寸采集完再统一写入，避免祖先元素先放大后污染后代的计算值。
+      for (const record of records) {
+        const { element, baseFontSize, baseLineHeight, lineAdjusted } = record;
+        element.style.setProperty(
+          'font-size',
+          `${(baseFontSize * fontScale).toFixed(2)}px`,
+          'important'
+        );
+        if (lineAdjusted) {
+          element.style.setProperty(
+            'line-height',
+            `${(baseLineHeight * fontScale).toFixed(2)}px`,
+            'important'
+          );
+        }
+      }
+
+      adjustedTextStyles = records;
+      return records.length;
+    } finally {
+      document.documentElement.removeAttribute(FONT_MEASURING_ATTR);
+    }
+  }
+
+  function changeFontScale(direction) {
+    if (!modeEnabled) {
+      return;
+    }
+
+    const next = clamp(
+      Math.round((fontScale + direction * FONT_SCALE_STEP) * 10) / 10,
+      FONT_SCALE_MIN,
+      FONT_SCALE_MAX
+    );
+
+    if (Math.abs(next - fontScale) < 0.001) {
+      showToast(direction > 0 ? '已是最大字号' : '已是最小字号');
+      return;
+    }
+
+    fontScale = next;
+    saveFontScale();
+    const adjustedCount = refreshPageFontScale();
+
+    let message = `字号 ${Math.round(fontScale * 100)}%`;
+    if (fontScale !== 1 && adjustedCount === 0) {
+      message += '（未找到正文）';
+    }
+    showToast(message);
   }
 
   function showToast(message) {
@@ -1248,8 +1530,11 @@
         position = stored.position;
         updateLayout(true);
       }
+      fontScale = stored.fontScale;
       if (!userChangedMode) {
         setMode(stored.enabled, false);
+      } else if (modeEnabled) {
+        refreshPageFontScale();
       }
     });
   }

@@ -1,2 +1,2 @@
-7c832fb112deaa442d5a665a783feb24edf6c093e90abbbb59259d4ee7a66e20  eink-page-turner-0.2.0.xpi
-7c832fb112deaa442d5a665a783feb24edf6c093e90abbbb59259d4ee7a66e20  eink-page-turner-0.2.0.zip
+eceaf7604d0cca25ceefd162cf3d16ed04f15dd706ba97b8171376ab525e211e  eink-page-turner-0.3.0.xpi
+eceaf7604d0cca25ceefd162cf3d16ed04f15dd706ba97b8171376ab525e211e  eink-page-turner-0.3.0.zip
